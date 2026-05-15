@@ -1,0 +1,8 @@
+{
+  "timer_interval_minutes": 1,
+  "snooze_interval_minutes": 5,
+  "overlay_enabled": true,
+  "overlay_color": "#FF0000",
+  "overlay_opacity": 0.15,
+  "overlay_pulses": 3
+}

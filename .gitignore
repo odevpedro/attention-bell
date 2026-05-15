@@ -1,0 +1,50 @@
+# Local personal data
+history.jsonl
+*.jsonl
+
+# AI assistant / agent local files
+CLAUDE.md
+.claude/
+.codex/
+.agents/
+.cursor/
+.cursorrules
+.aider*
+AGENTS.md
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+*.spec
+
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Editor and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs and local temp files
+*.log
+*.tmp
+*.bak
