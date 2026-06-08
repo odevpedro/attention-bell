@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Sino de Atencao
+Comment=Inicia o Sino de Atencao
+Exec=python3 /home/peter/Imagens/attention-bell/main.py
+Path=/home/peter/Imagens/attention-bell
+Icon=/home/peter/Imagens/attention-bell/app-icon.svg
+Terminal=false
+Categories=Utility;
+StartupNotify=true

@@ -1,7 +1,7 @@
 # Data Model — Sino de Atencao
 
 > Documento vivo do modelo de dados. Atualizado sempre que um dado persistido for criado, alterado ou removido.
-> **Ultima atualizacao:** 2026-05-15
+> **Ultima atualizacao:** 2026-05-23
 
 ---
 
@@ -38,6 +38,8 @@ erDiagram
         string overlay_color
         float overlay_opacity
         int overlay_pulses
+        boolean window_grid_enabled
+        boolean tiktak_enabled
     }
 
     HISTORY_EVENT {
@@ -72,6 +74,8 @@ Nao ha relacionamento entre arquivos. `history.jsonl` e uma sequencia append-onl
 | `overlay_color` | string | Nao | `#FF0000` | Cor do overlay fullscreen |
 | `overlay_opacity` | float | Nao | `0.15` | Opacidade maxima do overlay, limitada entre `0.01` e `0.35` |
 | `overlay_pulses` | inteiro | Nao | `3` | Quantidade de pulsacoes suaves do overlay |
+| `window_grid_enabled` | booleano | Nao | `true` | Habilita tentativa de organizar Chrome e terminal ao iniciar sessao |
+| `tiktak_enabled` | booleano | Nao | `true` | Habilita o tiktak curto reproduzido ao iniciar uma sessao |
 
 **Constraints:**
 - `timer_interval_minutes >= 1`
@@ -95,13 +99,14 @@ Nao ha relacionamento entre arquivos. `history.jsonl` e uma sequencia append-onl
 | `created_at` | string ISO 8601 | Nao | data/hora local atual | Momento em que o evento foi registrado |
 | `event_type` | string | Nao | `check_in` quando ausente em registros antigos | Tipo do evento |
 | `intention` | string | Nao | nenhum | Intencao ativa no momento do evento |
-| `response` | objeto ou string legada | Sim | objeto com strings vazias | Respostas escritas no alerta; cada pergunta tem um campo proprio |
+| `response` | objeto, string legada ou texto de fechamento | Sim | objeto com strings vazias | Respostas escritas no alerta; cada pergunta tem um campo proprio; no encerramento da sessao pode guardar um fechamento textual opcional |
 | `previous_intention` | string | Sim | ausente | Intencao anterior em eventos de ajuste |
 
 **Constraints:**
 - Um registro ocupa uma linha JSON por evento.
 - Linhas invalidas sao ignoradas na leitura.
 - `response` pode conter strings vazias para registrar check-ins sem escrita.
+- `response` pode conter um texto curto de fechamento ao encerrar a sessao.
 - Registros novos usam objeto com `current_mind`, `alignment` e `next_action`.
 - Registros antigos podem ter `response` como string simples e continuam legiveis.
 
@@ -155,12 +160,15 @@ Nao ha indices. `history.jsonl` e lido inteiro para exibicao do historico.
 | `overlay_color` | `config.json` | Preferencia local | Nao identifica o usuario |
 | `overlay_opacity` | `config.json` | Preferencia local | Pode indicar preferencia visual, mas fica local |
 | `overlay_pulses` | `config.json` | Preferencia local | Pode indicar preferencia visual, mas fica local |
+| `window_grid_enabled` | `config.json` | Preferencia local | Nao identifica o usuario, mas ativa leitura local da lista de janelas via KWin ou `wmctrl` |
+| `tiktak_enabled` | `config.json` | Preferencia local | Nao identifica o usuario; apenas define se o app toca o sinal sonoro de inicio |
 | `created_at` | `history.jsonl` | Pessoal contextual | Revela horarios de uso do app |
 | `event_type` | `history.jsonl` | Pessoal contextual | Revela padroes de uso da sessao |
 | `intention` | `history.jsonl` | Pessoal | Pode conter tarefas, projetos, pensamentos ou informacoes sensiveis digitadas pelo usuario |
 | `response.current_mind` | `history.jsonl` | Pessoal ou sensivel | Texto livre pode conter qualquer informacao pessoal ou sensivel |
 | `response.alignment` | `history.jsonl` | Pessoal ou sensivel | Texto livre pode conter qualquer informacao pessoal ou sensivel |
 | `response.next_action` | `history.jsonl` | Pessoal ou sensivel | Texto livre pode conter qualquer informacao pessoal ou sensivel |
+| `response` em `session_ended` | `history.jsonl` | Pessoal ou sensivel | Texto livre opcional de fechamento pode conter qualquer informacao pessoal ou sensivel |
 | `previous_intention` | `history.jsonl` | Pessoal | Pode conter tarefas, projetos ou pensamentos anteriores |
 
 **Regras gerais:**
@@ -205,3 +213,14 @@ Nao ha indices. `history.jsonl` e lido inteiro para exibicao do historico.
 | **Decisao** | Salvar `response` como objeto com `current_mind`, `alignment` e `next_action`. |
 | **Alternativas consideradas** | Manter texto unico; criar tres eventos separados por alerta. |
 | **Consequencias** | Historico fica mais estruturado; leitura precisa manter compatibilidade com registros antigos em string. |
+
+### ADR-DM-004 — Preferencia local para grid de janelas
+
+| Campo | Detalhe |
+|-------|---------|
+| **Status** | Aceita |
+| **Data** | 2026-05-15 |
+| **Contexto** | O usuario quer testar organizacao automatica de janelas ao iniciar a contagem. |
+| **Decisao** | Adicionar `window_grid_enabled` em `config.json`. |
+| **Alternativas consideradas** | Sempre organizar janelas sem configuracao; criar arquivo separado de layout. |
+| **Consequencias** | Recurso pode ser desligado sem alterar codigo; layout ainda e fixo no MVP. |

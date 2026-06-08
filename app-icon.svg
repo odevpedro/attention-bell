@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Bell icon">
+  <rect width="256" height="256" rx="56" fill="#fff7e6"/>
+  <path d="M128 32c-11 0-20 9-20 20v7c-31 10-54 39-54 74v29c0 20-8 39-22 53h192c-14-14-22-33-22-53v-29c0-35-23-64-54-74v-7c0-11-9-20-20-20Z" fill="#f4bf3a" stroke="#6d4c12" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M72 176h112c0 17-25 31-56 31s-56-14-56-31Z" fill="#e0a51f" stroke="#6d4c12" stroke-width="8" stroke-linejoin="round"/>
+  <circle cx="128" cy="180" r="14" fill="#6d4c12"/>
+  <path d="M95 90c8-15 23-25 41-25" fill="none" stroke="#fff7e6" stroke-opacity="0.45" stroke-width="12" stroke-linecap="round"/>
+</svg>

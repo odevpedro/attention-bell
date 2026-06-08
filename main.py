@@ -1,8 +1,19 @@
+import array
 import json
+import math
+import shutil
+import subprocess
+import tempfile
+import wave
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
 from datetime import datetime
+
+try:
+    import winsound
+except ImportError:  # pragma: no cover - not available on non-Windows platforms
+    winsound = None
 
 
 APP_NAME = "Sino de Atencao"
@@ -15,6 +26,8 @@ DEFAULT_CONFIG = {
     "overlay_color": "#FF0000",
     "overlay_opacity": 0.15,
     "overlay_pulses": 3,
+    "window_grid_enabled": True,
+    "tiktak_enabled": True,
 }
 
 
@@ -34,6 +47,8 @@ def normalize(config):
     except (TypeError, ValueError):
         data["overlay_opacity"] = 0.15
     data["overlay_enabled"] = bool(data["overlay_enabled"])
+    data["window_grid_enabled"] = bool(data["window_grid_enabled"])
+    data["tiktak_enabled"] = bool(data["tiktak_enabled"])
     data["overlay_color"] = str(data["overlay_color"] or "#FF0000")
     return data
 
@@ -83,6 +98,8 @@ class AttentionBell:
     def __init__(self, root):
         self.root = root
         self.config = load_config()
+        self.session_sound_path = self.resolve_session_sound()
+        self.session_sound_process = None
         self.current_intention = ""
         self.timer_id = None
         self.paused = False
@@ -94,6 +111,7 @@ class AttentionBell:
         root.geometry("520x360")
         root.minsize(440, 320)
         root.protocol("WM_DELETE_WINDOW", root.iconify)
+        self.configure_window_icon()
         self.frame = tk.Frame(root, padx=22, pady=22)
         self.frame.pack(fill="both", expand=True)
         self.show_start()
@@ -109,6 +127,7 @@ class AttentionBell:
 
     def show_start(self):
         self.cancel_timer()
+        self.stop_tiktak()
         self.running = False
         self.paused = False
         self.clear()
@@ -117,10 +136,11 @@ class AttentionBell:
             "Defina uma intencao curta para esta sessao. Ela fica somente em memoria.",
             wraplength=460,
         ).pack(pady=(8, 14))
-        self.intent_entry = tk.Entry(self.frame, font=("TkDefaultFont", 12))
+        self.intent_entry = tk.Entry(self.frame, font=("TkDefaultFont", 12), takefocus=1)
         self.intent_entry.pack(fill="x")
         self.intent_entry.focus_set()
         self.intent_entry.bind("<Return>", lambda _event: self.start_session())
+        self.intent_entry.bind("<Tab>", self.focus_next_widget)
 
         buttons = tk.Frame(self.frame)
         buttons.pack(fill="x", pady=(18, 0))
@@ -168,8 +188,11 @@ class AttentionBell:
         self.current_intention = intention
         self.running = True
         self.paused = False
+        self.stop_tiktak()
         save_history(self.current_intention, event_type="session_start")
+        self.prepare_workspace()
         self.show_session()
+        self.play_tiktak()
         self.schedule(self.config["timer_interval_minutes"])
 
     def schedule(self, minutes):
@@ -256,8 +279,11 @@ class AttentionBell:
         )
         for key, question in questions:
             tk.Label(frame, text=question, anchor="w", justify="left").pack(fill="x", pady=(8, 2))
-            field = tk.Text(frame, height=3, wrap="word")
+            field = tk.Text(frame, height=3, wrap="word", takefocus=1)
             field.pack(fill="x")
+            field.bind("<Tab>", self.focus_next_widget)
+            field.bind("<ISO_Left_Tab>", self.focus_previous_widget)
+            field.bind("<Shift-Tab>", self.focus_previous_widget)
             response_fields[key] = field
         response_fields["current_mind"].focus_set()
 
@@ -328,6 +354,12 @@ class AttentionBell:
                 elif event_type == "session_ended":
                     text.insert("end", "Evento: encerramento de sessao\n")
                     text.insert("end", f"Intencao: {record.get('intention', '')}\n\n")
+                    response = record.get("response")
+                    if isinstance(response, dict):
+                        text.insert("end", self.format_response(response))
+                        text.insert("end", "\n")
+                    elif response:
+                        text.insert("end", f"Fechamento: {response}\n\n")
                 elif event_type == "snoozed":
                     text.insert("end", "Evento: adiamento\n")
                     text.insert("end", f"Intencao: {record.get('intention', '')}\n\n")
@@ -359,7 +391,7 @@ class AttentionBell:
             )
         return f"Resposta: {response or '(sem resposta escrita)'}\n"
 
-    def ask_text(self, title, prompt, initial=""):
+    def ask_text(self, title, prompt, initial="", allow_empty=False):
         dialog = self.dialog(title, 480, 180)
         frame = tk.Frame(dialog, padx=18, pady=18)
         frame.pack(fill="both", expand=True)
@@ -373,7 +405,7 @@ class AttentionBell:
 
         def confirm():
             value = entry.get().strip()
-            if value:
+            if value or allow_empty:
                 result["value"] = value
                 dialog.destroy()
             else:
@@ -384,6 +416,181 @@ class AttentionBell:
         dialog.bind("<Return>", lambda _event: confirm())
         self.root.wait_window(dialog)
         return result["value"]
+
+    def play_tiktak(self):
+        if not self.config["tiktak_enabled"] or not self.running:
+            return
+        if self.session_sound_process and hasattr(self.session_sound_process, "poll") and self.session_sound_process.poll() is None:
+            return
+        if not self.session_sound_path or not self.session_sound_path.exists():
+            return
+        if winsound and self.session_sound_path.suffix.lower() == ".wav":
+            try:
+                winsound.PlaySound(
+                    str(self.session_sound_path),
+                    winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP,
+                )
+                self.session_sound_process = object()
+                return
+            except RuntimeError:
+                pass
+
+        commands = (
+            ("play", ["-q", str(self.session_sound_path), "repeat", "999999"]),
+            ("aplay", ["-q", str(self.session_sound_path)]),
+            ("afplay", [str(self.session_sound_path)]),
+        )
+        for command, args in commands:
+            executable = shutil.which(command)
+            if not executable:
+                continue
+            try:
+                if command == "afplay":
+                    self.session_sound_process = subprocess.Popen(
+                        ["bash", "-c", f'while true; do afplay "{self.session_sound_path}"; done'],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                else:
+                    self.session_sound_process = subprocess.Popen(
+                        [executable, *args],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                return
+            except OSError:
+                self.session_sound_process = None
+                continue
+
+        self.root.after(0, self.root.bell)
+
+    def stop_tiktak(self):
+        if winsound:
+            try:
+                winsound.PlaySound(None, winsound.SND_PURGE)
+            except RuntimeError:
+                pass
+        process = self.session_sound_process
+        self.session_sound_process = None
+        if process and hasattr(process, "poll") and process.poll() is None:
+            try:
+                process.terminate()
+                process.wait(timeout=1)
+            except (OSError, subprocess.SubprocessError, TimeoutError):
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+
+    def focus_next_widget(self, event):
+        next_widget = event.widget.tk_focusNext()
+        if next_widget:
+            next_widget.focus_set()
+        return "break"
+
+    def focus_previous_widget(self, event):
+        previous_widget = event.widget.tk_focusPrev()
+        if previous_widget:
+            previous_widget.focus_set()
+        return "break"
+
+    def resolve_session_sound(self):
+        loop_sound = Path(__file__).with_name("tick2.wav")
+        source_sound = Path(__file__).with_name("tick.wav")
+        if source_sound.exists():
+            try:
+                looped = self.build_loop_audio(source_sound, loop_sound)
+                if looped:
+                    return loop_sound
+            except OSError:
+                pass
+        for filename in ("tick.wav", "tick.mp3"):
+            local_sound = Path(__file__).with_name(filename)
+            if local_sound.exists():
+                return local_sound
+        return self.build_tiktak_audio()
+
+    def build_loop_audio(self, source_path, output_path):
+        try:
+            with wave.open(str(source_path), "rb") as source_file:
+                params = source_file.getparams()
+                if params.sampwidth != 2:
+                    return None
+                raw_frames = source_file.readframes(source_file.getnframes())
+            samples = array.array("h")
+            samples.frombytes(raw_frames)
+            if samples.itemsize != 2:
+                return None
+            frame_count = len(samples) // max(1, params.nchannels)
+            threshold = 256
+            start_frame = 0
+            for frame_index in range(frame_count):
+                frame_offset = frame_index * params.nchannels
+                frame = samples[frame_offset : frame_offset + params.nchannels]
+                if any(abs(sample) >= threshold for sample in frame):
+                    start_frame = frame_index
+                    break
+            frames_to_copy = min(int(params.framerate * 2), frame_count - start_frame)
+            start_sample = start_frame * params.nchannels
+            end_sample = start_sample + frames_to_copy * params.nchannels
+            frames = samples[start_sample:end_sample].tobytes()
+            with wave.open(str(output_path), "wb") as output_file:
+                output_file.setnchannels(params.nchannels)
+                output_file.setsampwidth(params.sampwidth)
+                output_file.setframerate(params.framerate)
+                output_file.setcomptype(params.comptype, params.compname)
+                output_file.writeframes(frames)
+            return output_path
+        except (OSError, wave.Error, ValueError):
+            return None
+
+    def build_tiktak_audio(self):
+        path = Path(tempfile.gettempdir()) / "attention-bell-tiktak.wav"
+        try:
+            sample_rate = 44100
+            segments = (
+                (1200.0, 0.12),
+                (0.0, 0.05),
+                (820.0, 0.12),
+                (0.0, 0.05),
+                (1200.0, 0.12),
+                (0.0, 0.05),
+                (820.0, 0.12),
+                (0.0, 0.05),
+            )
+            amplitude = 0.9
+            frames = bytearray()
+            for frequency, duration in segments:
+                sample_count = int(sample_rate * duration)
+                for index in range(sample_count):
+                    if frequency:
+                        sample = math.sin(2 * math.pi * frequency * (index / sample_rate))
+                    else:
+                        sample = 0.0
+                    value = int(32767 * amplitude * sample)
+                    frames.extend(value.to_bytes(2, byteorder="little", signed=True))
+            with wave.open(str(path), "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(bytes(frames))
+            return path
+        except (OSError, wave.Error, ValueError):
+            return None
+
+    def configure_window_icon(self):
+        icon_path = Path(__file__).with_name("app-icon.xbm")
+        if icon_path.exists():
+            try:
+                self.root.iconbitmap(f"@{icon_path}")
+                return
+            except tk.TclError:
+                pass
+        try:
+            img = tk.PhotoImage(file=str(Path(__file__).with_name("app-icon.png")))
+            self.root.tk.call("wm", "iconphoto", self.root._w, img)
+        except (tk.TclError, Exception):
+            pass
 
     def adjust_intention(self):
         value = self.ask_text("Ajustar intencao", "Qual e a intencao agora?", self.current_intention)
@@ -400,17 +607,23 @@ class AttentionBell:
         self.schedule(self.config["timer_interval_minutes"])
 
     def open_settings(self):
-        dialog = self.dialog("Configuracao", 430, 300)
+        dialog = self.dialog("Configuracao", 430, 380)
         frame = tk.Frame(dialog, padx=18, pady=18)
         frame.pack(fill="both", expand=True)
         timer = tk.StringVar(value=str(self.config["timer_interval_minutes"]))
         snooze = tk.StringVar(value=str(self.config["snooze_interval_minutes"]))
         overlay = tk.BooleanVar(value=self.config["overlay_enabled"])
+        tiktak = tk.BooleanVar(value=self.config["tiktak_enabled"])
+        window_grid = tk.BooleanVar(value=self.config["window_grid_enabled"])
 
         for text, var in (("Intervalo principal em minutos", timer), ("Adiamento em minutos", snooze)):
             tk.Label(frame, text=text, anchor="w").pack(fill="x")
             tk.Entry(frame, textvariable=var).pack(fill="x", pady=(4, 12))
         tk.Checkbutton(frame, text="Usar overlay visual suave", variable=overlay).pack(anchor="w")
+        tk.Checkbutton(frame, text="Tiktak ao iniciar sessao", variable=tiktak).pack(anchor="w")
+        tk.Checkbutton(frame, text="Organizar Chrome e terminal ao iniciar sessao", variable=window_grid).pack(
+            anchor="w"
+        )
         tk.Label(
             frame,
             text="Nota: desative o overlay se tiver sensibilidade visual.",
@@ -426,10 +639,17 @@ class AttentionBell:
                     "timer_interval_minutes": timer.get(),
                     "snooze_interval_minutes": snooze.get(),
                     "overlay_enabled": overlay.get(),
+                    "tiktak_enabled": tiktak.get(),
+                    "window_grid_enabled": window_grid.get(),
                 }
             )
             save_config(self.config)
             dialog.destroy()
+            self.session_sound_path = self.resolve_session_sound()
+            if self.running:
+                self.stop_tiktak()
+                if self.config["tiktak_enabled"]:
+                    self.play_tiktak()
             if self.running and not self.paused:
                 self.schedule(self.config["timer_interval_minutes"])
             self.update_status()
@@ -447,9 +667,20 @@ class AttentionBell:
         self.update_status()
 
     def end_session(self):
+        self.cancel_timer()
+        self.stop_tiktak()
         if self.current_intention:
-            save_history(self.current_intention, event_type="session_ended")
+            closing_note = self.ask_text(
+                "Encerrar sessao",
+                f"O que voce quer registrar ao encerrar a sessao de \"{self.current_intention}\"?",
+                allow_empty=True,
+            )
+            if closing_note is None:
+                closing_note = ""
+            save_history(self.current_intention, response=closing_note, event_type="session_ended")
         self.current_intention = ""
+        self.running = False
+        self.paused = False
         self.show_start()
 
     def status_text(self):
@@ -498,6 +729,204 @@ class AttentionBell:
             window.after(35, step, index + 1)
 
         step()
+
+    def prepare_workspace(self):
+        if not self.config["window_grid_enabled"]:
+            return
+        self.ensure_workspace_apps()
+        self.root.after(1200, self.arrange_workspace)
+
+    def ensure_workspace_apps(self):
+        if not self.process_running(("chrome", "chromium", "Google Chrome")):
+            self.launch_first_available(("google-chrome-stable", "google-chrome", "chromium", "chromium-browser", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"))
+        if not self.process_running(("konsole", "gnome-terminal", "kitty", "alacritty", "xfce4-terminal", "xterm", "Terminal", "iTerm2")):
+            self.launch_first_available(("konsole", "gnome-terminal", "kitty", "alacritty", "xfce4-terminal", "xterm", "Terminal", "iTerm"))
+        if not self.process_running(("dolphin", "nautilus", "thunar", "nemo", "pcmanfm", "Finder")):
+            self.launch_first_available(("dolphin", "nautilus", "thunar", "nemo", "pcmanfm", "open"))
+
+    def process_running(self, patterns):
+        try:
+            output = subprocess.run(
+                ["pgrep", "-af", "|".join(patterns)],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=2,
+            ).stdout.lower()
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return any(pattern in output for pattern in patterns)
+
+    def launch_first_available(self, commands):
+        for command in commands:
+            path = shutil.which(command)
+            if not path:
+                continue
+            try:
+                subprocess.Popen([path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True
+            except OSError:
+                continue
+        return False
+
+    def arrange_workspace(self):
+        if self.arrange_workspace_kwin():
+            return
+        if not shutil.which("wmctrl"):
+            return
+        try:
+            windows = subprocess.run(
+                ["wmctrl", "-lx"],
+                capture_output=True,
+                check=True,
+                text=True,
+                timeout=2,
+            ).stdout.splitlines()
+        except (OSError, subprocess.SubprocessError):
+            return
+
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        right_x = screen_w // 2
+        right_w = screen_w - right_x
+        left_w = right_x
+        top_h = screen_h // 2
+        bottom_h = screen_h - top_h
+        placements = (
+            (("dolphin", "nautilus", "thunar", "nemo", "pcmanfm"), (0, 0, left_w, screen_h)),
+            (("google-chrome", "chromium", "chrome"), (right_x, 0, right_w, top_h)),
+            (
+                (
+                    "gnome-terminal",
+                    "konsole",
+                    "org.gnome.terminal",
+                    "kitty",
+                    "alacritty",
+                    "xfce4-terminal",
+                    "xterm",
+                    "tilix",
+                    "terminator",
+                ),
+                (right_x, top_h, right_w, bottom_h),
+            ),
+        )
+
+        for patterns, geometry in placements:
+            window_id = self.find_window_id(windows, patterns)
+            if window_id:
+                self.place_window(window_id, geometry)
+
+    def find_window_id(self, windows, patterns):
+        for line in windows:
+            parts = line.split(None, 4)
+            if len(parts) < 5:
+                continue
+            window_id, _desktop, _pid, wm_class, title = parts
+            haystack = f"{wm_class} {title}".lower()
+            if any(pattern in haystack for pattern in patterns):
+                return window_id
+        return None
+
+    def place_window(self, window_id, geometry):
+        x, y, width, height = geometry
+        try:
+            subprocess.run(
+                ["wmctrl", "-ir", window_id, "-b", "remove,maximized_vert,maximized_horz"],
+                check=False,
+                timeout=2,
+            )
+            subprocess.run(
+                ["wmctrl", "-ir", window_id, "-e", f"0,{x},{y},{width},{height}"],
+                check=False,
+                timeout=2,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return
+
+    def arrange_workspace_kwin(self):
+        if not shutil.which("qdbus"):
+            return False
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        script = self.kwin_grid_script(screen_w, screen_h)
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as script_file:
+                script_file.write(script)
+                script_path = script_file.name
+            plugin_name = "attention-bell-grid"
+            subprocess.run(
+                ["qdbus", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", plugin_name],
+                check=False,
+                timeout=2,
+            )
+            subprocess.run(
+                ["qdbus", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.loadScript", script_path, plugin_name],
+                check=True,
+                timeout=2,
+            )
+            subprocess.run(
+                ["qdbus", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.start"],
+                check=True,
+                timeout=2,
+            )
+            return True
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    def kwin_grid_script(self, screen_w, screen_h):
+        right_x = screen_w // 2
+        right_w = screen_w - right_x
+        left_w = right_x
+        top_h = screen_h // 2
+        bottom_h = screen_h - top_h
+        return f"""
+const rightX = {right_x};
+const rightW = {right_w};
+const leftW = {left_w};
+const topH = {top_h};
+const bottomH = {bottom_h};
+const screenH = {screen_h};
+
+function textOf(window) {{
+    return [
+        window.resourceClass || "",
+        window.resourceName || "",
+        window.caption || ""
+    ].join(" ").toLowerCase();
+}}
+
+function findWindow(patterns) {{
+    const windows = workspace.windowList();
+    for (let i = windows.length - 1; i >= 0; i--) {{
+        const haystack = textOf(windows[i]);
+        for (let j = 0; j < patterns.length; j++) {{
+            if (haystack.indexOf(patterns[j]) >= 0) {{
+                return windows[i];
+            }}
+        }}
+    }}
+    return null;
+}}
+
+function place(window, x, y, width, height) {{
+    if (!window) {{
+        return;
+    }}
+    try {{ window.fullScreen = false; }} catch (error) {{}}
+    try {{ window.minimized = false; }} catch (error) {{}}
+    try {{ window.maximized = false; }} catch (error) {{}}
+    try {{ window.frameGeometry = {{x: x, y: y, width: width, height: height}}; }} catch (error) {{}}
+    try {{ workspace.activeWindow = window; }} catch (error) {{}}
+}}
+
+const chrome = findWindow(["google-chrome", "chromium", "chrome"]);
+const terminal = findWindow(["konsole", "gnome-terminal", "kitty", "alacritty", "xfce4-terminal", "xterm", "tilix", "terminator"]);
+const fileManager = findWindow(["dolphin", "nautilus", "thunar", "nemo", "pcmanfm"]);
+
+place(fileManager, 0, 0, leftW, screenH);
+place(chrome, rightX, 0, rightW, topH);
+place(terminal, rightX, topH, rightW, bottomH);
+"""
 
 
 if __name__ == "__main__":

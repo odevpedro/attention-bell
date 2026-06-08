@@ -1,8 +1,10 @@
 {
-  "timer_interval_minutes": 1,
-  "snooze_interval_minutes": 5,
+  "timer_interval_minutes": 5,
+  "snooze_interval_minutes": 1,
   "overlay_enabled": true,
   "overlay_color": "#FF0000",
   "overlay_opacity": 0.15,
-  "overlay_pulses": 3
+  "overlay_pulses": 3,
+  "window_grid_enabled": false,
+  "tiktak_enabled": true
 }
