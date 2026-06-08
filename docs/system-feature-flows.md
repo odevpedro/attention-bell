@@ -42,7 +42,7 @@ Usuario
 | Orquestracao | Classe `AttentionBell`, estado da sessao e controle de timers |
 | Persistencia local | Funcoes `load_config`, `save_config`, `load_history` e `save_history` |
 | Sistema operacional | Gerenciador de janelas, bell do sistema e politica de foco |
-| Ferramenta local opcional | KWin via D-Bus no KDE Wayland; `wmctrl` como fallback no Linux/X11. Em macOS e Windows, ferramentas de grid nao estao disponiveis |
+| Ferramenta local opcional | KWin via D-Bus no KDE Wayland; `wmctrl` como fallback no Linux/X11; `tasklist` para deteccao de processos no Windows. Em macOS e Windows, ferramentas de grid nao estao disponiveis |
 
 ---
 

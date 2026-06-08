@@ -34,8 +34,10 @@ attention-bell/
 ├── main.py
 ├── config.json
 ├── tick.wav
+├── tick.mp3
 ├── app-icon.svg
 ├── app-icon.xbm
+├── app-icon.png
 ├── sino-de-atencao.desktop
 ├── requirements.txt
 ├── README.md

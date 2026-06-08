@@ -579,18 +579,26 @@ class AttentionBell:
             return None
 
     def configure_window_icon(self):
-        icon_path = Path(__file__).with_name("app-icon.xbm")
-        if icon_path.exists():
+        root_dir = Path(__file__).parent
+        xbm = root_dir / "app-icon.xbm"
+        png = root_dir / "app-icon.png"
+        if xbm.exists():
             try:
-                self.root.iconbitmap(f"@{icon_path}")
+                self.root.iconbitmap(f"@{xbm}")
                 return
             except tk.TclError:
                 pass
-        try:
-            img = tk.PhotoImage(file=str(Path(__file__).with_name("app-icon.png")))
-            self.root.tk.call("wm", "iconphoto", self.root._w, img)
-        except (tk.TclError, Exception):
-            pass
+        for path in (png, xbm):
+            if path.exists():
+                try:
+                    if path.suffix == ".png":
+                        img = tk.PhotoImage(file=str(path))
+                    else:
+                        img = tk.BitmapImage(file=str(path))
+                    self.root.tk.call("wm", "iconphoto", self.root._w, img)
+                    return
+                except (tk.TclError, Exception):
+                    continue
 
     def adjust_intention(self):
         value = self.ask_text("Ajustar intencao", "Qual e a intencao agora?", self.current_intention)
@@ -737,25 +745,42 @@ class AttentionBell:
         self.root.after(1200, self.arrange_workspace)
 
     def ensure_workspace_apps(self):
-        if not self.process_running(("chrome", "chromium", "Google Chrome")):
-            self.launch_first_available(("google-chrome-stable", "google-chrome", "chromium", "chromium-browser", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"))
-        if not self.process_running(("konsole", "gnome-terminal", "kitty", "alacritty", "xfce4-terminal", "xterm", "Terminal", "iTerm2")):
-            self.launch_first_available(("konsole", "gnome-terminal", "kitty", "alacritty", "xfce4-terminal", "xterm", "Terminal", "iTerm"))
-        if not self.process_running(("dolphin", "nautilus", "thunar", "nemo", "pcmanfm", "Finder")):
-            self.launch_first_available(("dolphin", "nautilus", "thunar", "nemo", "pcmanfm", "open"))
+        if not self.process_running(("chrome", "chromium", "Google Chrome", "chrome.exe")):
+            self.launch_first_available(("google-chrome-stable", "google-chrome", "chromium", "chromium-browser", "chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"))
+        if not self.process_running(("konsole", "gnome-terminal", "kitty", "alacritty", "xfce4-terminal", "xterm", "Terminal", "iTerm2", "cmd.exe", "powershell.exe")):
+            self.launch_first_available(("konsole", "gnome-terminal", "kitty", "alacritty", "xfce4-terminal", "xterm", "Terminal", "iTerm", "cmd", "powershell"))
+        if not self.process_running(("dolphin", "nautilus", "thunar", "nemo", "pcmanfm", "Finder", "explorer.exe")):
+            self.launch_first_available(("dolphin", "nautilus", "thunar", "nemo", "pcmanfm", "explorer", "open"))
 
     def process_running(self, patterns):
-        try:
-            output = subprocess.run(
-                ["pgrep", "-af", "|".join(patterns)],
-                capture_output=True,
-                check=False,
-                text=True,
-                timeout=2,
-            ).stdout.lower()
-        except (OSError, subprocess.SubprocessError):
+        if shutil.which("pgrep"):
+            try:
+                output = subprocess.run(
+                    ["pgrep", "-af", "|".join(patterns)],
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                    timeout=2,
+                ).stdout.lower()
+            except (OSError, subprocess.SubprocessError):
+                return False
+            return any(pattern in output for pattern in patterns)
+        if shutil.which("tasklist"):
+            try:
+                output = subprocess.run(
+                    ["tasklist", "/FO", "CSV", "/NH"],
+                    capture_output=True,
+                    check=True,
+                    text=True,
+                    timeout=5,
+                ).stdout.lower()
+            except (OSError, subprocess.SubprocessError):
+                return False
+            for pattern in patterns:
+                if pattern.lower() in output:
+                    return True
             return False
-        return any(pattern in output for pattern in patterns)
+        return False
 
     def launch_first_available(self, commands):
         for command in commands:
