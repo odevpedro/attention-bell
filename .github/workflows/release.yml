@@ -1,0 +1,120 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+      - name: Build executable
+        run: pyinstaller --onefile --windowed --name "Sino-de-Atencao" --add-data "tick.wav;." --add-data "tick.mp3;." --add-data "app-icon.png;." --add-data "app-icon.svg;." --add-data "app-icon.xbm;." main.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sino-de-Atencao-Windows
+          path: dist/Sino-de-Atencao.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+      - name: Build executable
+        run: pyinstaller --onefile --windowed --name "Sino-de-Atencao" --add-data "tick.wav:." --add-data "tick.mp3:." --add-data "app-icon.png:." --add-data "app-icon.svg:." --add-data "app-icon.xbm:." main.py
+      - name: Create .deb directory structure
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          PKG="sino-de-atencao"
+          BUILDDIR="deb-build"
+          rm -rf "$BUILDDIR"
+          mkdir -p "$BUILDDIR/usr/bin"
+          mkdir -p "$BUILDDIR/usr/share/applications"
+          mkdir -p "$BUILDDIR/usr/share/icons/hicolor/scalable/apps"
+          mkdir -p "$BUILDDIR/usr/share/doc/$PKG"
+          mkdir -p "$BUILDDIR/DEBIAN"
+          cp dist/Sino-de-Atencao "$BUILDDIR/usr/bin/sino-de-atencao"
+          cp app-icon.svg "$BUILDDIR/usr/share/icons/hicolor/scalable/apps/app-icon.svg"
+          cp README.md "$BUILDDIR/usr/share/doc/$PKG/README.md"
+          echo "structure done" >> "$BUILDDIR/.done"
+      - name: Write .deb metadata files
+        shell: bash
+        run: |
+          BUILDDIR="deb-build"
+          PKG="sino-de-atencao"
+          VERSION="${GITHUB_REF_NAME#v}"
+          printf '%s\n' \
+            '[Desktop Entry]' \
+            'Type=Application' \
+            'Name=Sino de Atencao' \
+            'Comment=Timer de check-in para manter o foco' \
+            'Exec=sino-de-atencao' \
+            'Icon=app-icon' \
+            'Terminal=false' \
+            'Categories=Utility;' \
+            'StartupNotify=true' \
+            > "$BUILDDIR/usr/share/applications/sino-de-atencao.desktop"
+          printf '%s\n' \
+            "Package: $PKG" \
+            "Version: $VERSION" \
+            'Section: utils' \
+            'Priority: optional' \
+            'Architecture: amd64' \
+            'Maintainer: Pedro <odevpedro>' \
+            'Description: Attention bell timer for focus and check-ins' \
+            ' A timer-based attention assistant that periodically asks' \
+            ' if you are still focused on your intended task.' \
+            ' Features overlay alerts, tiktak sound, and session history.' \
+            > "$BUILDDIR/DEBIAN/control"
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'set -e' \
+            'if command -v update-desktop-database >/dev/null 2>&1; then' \
+            '    update-desktop-database' \
+            'fi' \
+            'if command -v gtk-update-icon-cache >/dev/null 2>&1; then' \
+            '    gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true' \
+            'fi' \
+            'exit 0' \
+            > "$BUILDDIR/DEBIAN/postinst"
+          chmod 755 "$BUILDDIR/DEBIAN/postinst"
+      - name: Build .deb package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PKG="sino-de-atencao"
+          dpkg-deb --build deb-build
+          mv deb-build.deb "${PKG}_${VERSION}_amd64.deb"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sino-de-Atencao-Linux
+          path: ./*.deb
+
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Sino-de-Atencao-Windows/Sino-de-Atencao.exe
+            Sino-de-Atencao-Linux/*.deb

@@ -1,8 +1,10 @@
 import array
 import json
 import math
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import wave
 import tkinter as tk
@@ -17,8 +19,31 @@ except ImportError:  # pragma: no cover - not available on non-Windows platforms
 
 
 APP_NAME = "Sino de Atencao"
-CONFIG_PATH = Path(__file__).with_name("config.json")
-HISTORY_PATH = Path(__file__).with_name("history.jsonl")
+
+
+def bundled_path() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).parent
+
+
+def data_dir() -> Path:
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+        path = Path(base) / "SinoDeAtencao"
+    elif sys.platform == "darwin":
+        path = Path.home() / "Library" / "Application Support" / "SinoDeAtencao"
+    else:
+        xdg = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+        path = Path(xdg) / "attention-bell"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+BUNDLE_DIR = bundled_path()
+DATA_DIR = data_dir()
+CONFIG_PATH = DATA_DIR / "config.json"
+HISTORY_PATH = DATA_DIR / "history.jsonl"
 DEFAULT_CONFIG = {
     "timer_interval_minutes": 15,
     "snooze_interval_minutes": 5,
@@ -495,8 +520,8 @@ class AttentionBell:
         return "break"
 
     def resolve_session_sound(self):
-        loop_sound = Path(__file__).with_name("tick2.wav")
-        source_sound = Path(__file__).with_name("tick.wav")
+        loop_sound = DATA_DIR / "tick2.wav"
+        source_sound = BUNDLE_DIR / "tick.wav"
         if source_sound.exists():
             try:
                 looped = self.build_loop_audio(source_sound, loop_sound)
@@ -505,7 +530,7 @@ class AttentionBell:
             except OSError:
                 pass
         for filename in ("tick.wav", "tick.mp3"):
-            local_sound = Path(__file__).with_name(filename)
+            local_sound = BUNDLE_DIR / filename
             if local_sound.exists():
                 return local_sound
         return self.build_tiktak_audio()
@@ -579,9 +604,8 @@ class AttentionBell:
             return None
 
     def configure_window_icon(self):
-        root_dir = Path(__file__).parent
-        xbm = root_dir / "app-icon.xbm"
-        png = root_dir / "app-icon.png"
+        xbm = BUNDLE_DIR / "app-icon.xbm"
+        png = BUNDLE_DIR / "app-icon.png"
         if xbm.exists():
             try:
                 self.root.iconbitmap(f"@{xbm}")

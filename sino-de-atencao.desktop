@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=Sino de Atencao
-Comment=Inicia o Sino de Atencao
-Exec=python3 /home/peter/Imagens/attention-bell/main.py
-Path=/home/peter/Imagens/attention-bell
-Icon=/home/peter/Imagens/attention-bell/app-icon.svg
+Comment=Timer de check-in para manter o foco
+Exec=python3 main.py
+Path=%k
+Icon=app-icon
 Terminal=false
 Categories=Utility;
 StartupNotify=true
